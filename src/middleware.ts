@@ -1,48 +1,130 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import {
+  clerkClient,
+  clerkMiddleware,
+  createRouteMatcher,
+} from "@clerk/nextjs/server";
+import { NextResponse, type NextRequest } from "next/server";
+import type { UserRole } from "../types/globals";
 
-const isPublicRoute = createRouteMatcher([
-  "/sign-in",
-  "/sign-up",
-  "/",
-  "/home",
-]);
+interface UserWithRole {
+  id: string;
+  role: UserRole;
+}
 
-const isPublicAPIRoute = createRouteMatcher(["/api/videos"]);
+const isPublicRoute = createRouteMatcher(["/sign-in", "/sign-up", "/"]);
+const isPublicApiRoute = createRouteMatcher(["/api/webhook/register"]);
+const isAdminRoute = createRouteMatcher(["/admin(.*)"]);
+
+const ROUTES = {
+  SIGN_IN: "/sign-in",
+  DASHBOARD: "/dashboard",
+  ADMIN_DASHBOARD: "/admin/dashboard",
+} as const;
+
+const createRedirectResponse = (url: string, req: NextRequest) => {
+  return NextResponse.redirect(new URL(url, req.url));
+};
+
+const createUnauthorizedResponse = () => {
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+};
+
+const getUserWithRole = async (
+  userId: string
+): Promise<UserWithRole | null> => {
+  try {
+    const client = await clerkClient();
+    const user = await client.users.getUser(userId);
+    const role = user.publicMetadata.role || "user";
+
+    return {
+      id: user.id,
+      role,
+    };
+  } catch (error) {
+    console.error("Failed to fetch user:", error);
+    return null;
+  }
+};
+
+const handleAuthenticatedUser = async (
+  userId: string,
+  req: NextRequest
+): Promise<NextResponse | null> => {
+  const userWithRole = await getUserWithRole(userId);
+
+  if (!userWithRole) {
+    console.error(`Failed to fetch user data for userId: ${userId}`);
+    return createUnauthorizedResponse();
+  }
+
+  const { role } = userWithRole;
+  const { pathname } = req.nextUrl;
+
+  if (role === "admin" && pathname === ROUTES.DASHBOARD) {
+    return createRedirectResponse(ROUTES.ADMIN_DASHBOARD, req);
+  }
+
+  if (role !== "admin" && isAdminRoute(req)) {
+    return createRedirectResponse(ROUTES.DASHBOARD, req);
+  }
+
+  if (isPublicRoute(req)) {
+    const targetRoute =
+      role === "admin" ? ROUTES.ADMIN_DASHBOARD : ROUTES.DASHBOARD;
+    return createRedirectResponse(targetRoute, req);
+  }
+
+  return null;
+};
+
+const handleUnauthenticatedUser = (req: NextRequest): NextResponse => {
+  if (isPublicRoute(req) || isPublicApiRoute(req)) {
+    return NextResponse.next();
+  }
+
+  return createRedirectResponse(ROUTES.SIGN_IN, req);
+};
 
 export default clerkMiddleware(async (auth, req) => {
-  const { userId } = await auth();
-  const url = new URL(req.url);
-  const pathname = url.pathname;
+  try {
+    const { userId } = await auth();
+    const isApiRoute = req.nextUrl.pathname.startsWith("/api");
 
-  const isDashboard = pathname === "/home";
-  const isApi = pathname.startsWith("/api");
-  const isPublicPage = isPublicRoute(req);
-  const isPublicApi = isPublicAPIRoute(req);
-
-  if (pathname === "/") {
-    return NextResponse.redirect(new URL("/home", req.url));
-  }
-
-  if (userId && isPublicPage && !isDashboard) {
-    return NextResponse.redirect(new URL("/home", req.url));
-  }
-
-  if (!userId) {
-    if (isApi) {
-      if (!isPublicApi) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (isApiRoute) {
+      if (isPublicApiRoute(req)) {
+        return NextResponse.next();
       }
-    } else {
-      if (!isPublicPage) {
-        return NextResponse.redirect(new URL("/sign-in", req.url));
+
+      if (!userId) {
+        return createUnauthorizedResponse();
       }
+
+      return NextResponse.next();
     }
-  }
 
-  return NextResponse.next();
+    if (userId) {
+      const response = await handleAuthenticatedUser(userId, req);
+      return response || NextResponse.next();
+    } else {
+      return handleUnauthenticatedUser(req);
+    }
+  } catch (error) {
+    console.error("Middleware error:", error);
+
+    if (req.nextUrl.pathname.startsWith("/api")) {
+      return NextResponse.json(
+        { error: "Internal server error" },
+        { status: 500 }
+      );
+    }
+
+    return createRedirectResponse(ROUTES.SIGN_IN, req);
+  }
 });
 
 export const config = {
-  matcher: ["/((?!.*\\..*|_next).*)", "/", "/(api|trpc)(.*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
 };
