@@ -11,34 +11,36 @@ export function withLoggerAndErrorHandler(handler: Handler): Handler {
 
     try {
       const response = await handler(request);
-
       const duration = Date.now() - start;
-      logger.info(
-        JSON.stringify({
+
+      // Only log errors and slow requests (>1s)
+      if (response.status >= 400 || duration > 1000) {
+        const logLevel = response.status >= 500 ? "error" : "warn";
+
+        logger[logLevel]("Request completed", {
           method: request.method,
           url: request.nextUrl.pathname,
           status: response.status,
           responseTime: `${duration}ms`,
-        })
-      );
+        });
+      }
 
       return response;
     } catch (err: unknown) {
       const duration = Date.now() - start;
-
-      // Narrow the error type
       const error = err instanceof Error ? err : new Error("Unknown error");
 
-      logger.error(
-        JSON.stringify({
-          method: request.method,
-          url: request.nextUrl.pathname,
-          error: error.message,
-          errorType: error.name,
-          stack: error.stack,
-          responseTime: `${duration}ms`,
-        })
-      );
+      logger.error("Request failed", {
+        method: request.method,
+        url: request.nextUrl.pathname,
+        error: {
+          message: error.message,
+          type: error.name,
+          stack:
+            process.env.NODE_ENV === "development" ? error.stack : undefined,
+        },
+        responseTime: `${duration}ms`,
+      });
 
       // Handle Prisma-specific errors
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -60,7 +62,6 @@ export function withLoggerAndErrorHandler(handler: Handler): Handler {
         });
       }
 
-      // Default: Internal server error
       return errorResponse("Internal Server Error", 500, {
         message: error.message,
         type: error.name,
