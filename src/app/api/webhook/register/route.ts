@@ -78,7 +78,11 @@ export const POST = withLoggerAndErrorHandler(async (request: NextRequest) => {
       },
     });
   } catch (err) {
-    return errorResponse("Error creating user in database", 500);
+    return errorResponse(
+      err instanceof Error ? err.message : "Error creating user in database",
+      500,
+      err
+    );
   }
 
   return successResponse("Webhook processed successfully", 200);
