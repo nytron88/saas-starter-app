@@ -4,7 +4,8 @@ import {
   createRouteMatcher,
 } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
-import type { UserRole } from "../types/globals";
+import { errorResponse } from "./lib/responseWrapper";
+import type { UserRole } from "@/types/globals";
 
 interface UserWithRole {
   id: string;
@@ -26,7 +27,7 @@ const createRedirectResponse = (url: string, req: NextRequest) => {
 };
 
 const createUnauthorizedResponse = () => {
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  return errorResponse("Unauthorized", 401);
 };
 
 const getUserWithRole = async (
@@ -113,10 +114,7 @@ export default clerkMiddleware(async (auth, req) => {
     console.error("Middleware error:", error);
 
     if (req.nextUrl.pathname.startsWith("/api")) {
-      return NextResponse.json(
-        { error: "Internal server error" },
-        { status: 500 }
-      );
+      return errorResponse("Internal server error", 500);
     }
 
     return createRedirectResponse(ROUTES.SIGN_IN, req);
