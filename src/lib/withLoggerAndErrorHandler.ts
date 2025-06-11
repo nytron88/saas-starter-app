@@ -3,14 +3,22 @@ import logger from "./logger";
 import { errorResponse } from "./responseWrapper";
 import { Prisma } from "../../generated/prisma";
 
-type Handler = (request: NextRequest) => Promise<NextResponse>;
+export type ContextWithId = { params: { id: string } };
+
+type Handler = (
+  request: NextRequest,
+  context: ContextWithId
+) => Promise<NextResponse>;
 
 export function withLoggerAndErrorHandler(handler: Handler): Handler {
-  return async function wrappedHandler(request: NextRequest) {
+  return async function wrappedHandler(
+    request: NextRequest,
+    context: ContextWithId
+  ) {
     const start = Date.now();
 
     try {
-      const response = await handler(request);
+      const response = await handler(request, context);
       const duration = Date.now() - start;
 
       // Only log errors and slow requests (>1s)
