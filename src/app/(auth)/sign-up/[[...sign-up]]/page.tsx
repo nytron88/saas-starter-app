@@ -93,7 +93,7 @@ export default function SignUpPage() {
 
       if (completeSignUp.status === "complete") {
         await setActive({ session: completeSignUp.createdSessionId });
-        router.push("/home");
+        router.push("/dashboard");
       } else {
         console.error("Sign up not complete:", completeSignUp);
         setErrors(["Verification failed. Please try again."]);
@@ -119,7 +119,7 @@ export default function SignUpPage() {
       await signUp.authenticateWithRedirect({
         strategy: "oauth_google",
         redirectUrl: "/sso-callback",
-        redirectUrlComplete: "/home",
+        redirectUrlComplete: "/dashboard",
       });
     } catch (err: any) {
       console.error("Error:", err);
